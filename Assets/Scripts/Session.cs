@@ -8,49 +8,70 @@ public class Session : MonoBehaviour
     public enum StateSission
     {
         //Состояния запуска
+        None,
         Settings,           //Настройка сессии
         SleepStart,         //Временная задержка перед запуском
         RandomDir,          //Выбор стартового рандомного значения
 
         //Состояния цикла
-        FindEndPoint,       //Определяем следующею конечную точку
         ChecksAndFinMovePoint,// Проверки, определяем следующею точку перемещения
 
         //Состояние конца сессии
         EndSession          //Конец сессии
     }
-    public StateSission _StateSission = StateSission.Settings;
+    public StateSission _StateSission = StateSission.None;
 
-    public int _Experience;
+    public delegate void EventSession();
+    public event EventSession _StartSession;
+    public event EventSession _EndSession;
+    public bool _IsPlaySession = false;
+
+    public int _Experience = 0;
+    public int _Record = 0;
     public int _AddExperience = 10;
 
-    public float _Speed = 0.01f; // Скорость м/с
-    public float _R = 0.1f;
-    public float _Length = 0.25f;
-    public float _SpeedRacket = 0.1f;
+    public float _StartSpeed = 1;
+    public float _StartR = 0.025f;
+    public float _StartLength = 0.25f;
+    public float _StartSpeedRacket = 1;
+
+    private float _Speed;
+    private float _R;
+    private float _Length;
+    private float _SpeedRacket;
+
+    public float _AddSpeed = 0.1f;
+    public float _TimeAddSpeed = 1;
+    private float _OldTime = 0;
 
     private static GameObject _BallObj;
     private static GameObject _RacketObj;
 
     private Vector2[] _Point = new Vector2[4];
 
+    public Color32 _ColorBall = new Color32(255, 255, 255, 255);
     private GameObject _Ball;
     private GameObject _Racket_1;
     private GameObject _Racket_2;
 
-    private float _MaxLength;
     private Vector2 _Dir;
-    private Vector2 _EndPoint;
 
+    public void StartSession()
+    {
+        _IsPlaySession = true;
+        _StateSission = StateSission.Settings;
+    }
+    public void StopSession()
+    {
+        EndSession();
+    }
+
+    void Awake()
+    {
+        _Session = this;
+    }
     void Update()
     {
-        /*if (_Ball != null)
-        {
-            Debug.DrawLine(_EndPoint, _EndPoint + (((Vector2)_Ball.transform.localPosition - _EndPoint).normalized * 0.1f), Color.red);
-            Debug.DrawLine(_Ball.transform.localPosition, _Dir * 0.1f, Color.blue);
-        }*/
-
-
         switch (_StateSission)
         {
             case StateSission.Settings:
@@ -62,11 +83,8 @@ public class Session : MonoBehaviour
             case StateSission.RandomDir:
                 RandomDir();
                 break;
-            case StateSission.FindEndPoint:
-                FindEndPoint();
-                break;
             case StateSission.ChecksAndFinMovePoint:
-                FinMovePoint();
+                ChecksAndFinMovePoint();
                 break;
             case StateSission.EndSession:
                 EndSession();
@@ -76,9 +94,15 @@ public class Session : MonoBehaviour
         }
     }
 
-    void Settings()
+    private void Settings()
     {
-        _Session = this;
+        _Speed = _StartSpeed;
+        _R = _StartR;
+        _Length = _StartLength;
+        _SpeedRacket = _StartSpeedRacket;
+        _Experience = 0;
+
+    _Record = PlayerPrefs.GetInt("Record");
 
         if (_BallObj == null)
             _BallObj = (GameObject)Resources.Load("Ball");
@@ -98,58 +122,72 @@ public class Session : MonoBehaviour
         _Point[2] = new Vector2(n, 1);
         _Point[3] = new Vector2(n * -1, 1);
 
-        _MaxLength = Vector2.Distance(_Point[0], _Point[2]);
+        if (_Ball == null)
+        {
+            _Ball = Instantiate(_BallObj);
+            _Ball.transform.localScale = new Vector3(_R * 2, _R * 2, _R * 2);
+            _Ball.name = "Ball";
+            _Ball.transform.parent = transform;
+            _Ball.transform.localPosition = Vector2.zero;
+        }
+        else
+        {
+            _Ball.transform.localPosition = Vector2.zero;
+            _Ball.SetActive(true);
+        }
+        _Ball.GetComponent<SpriteRenderer>().color = _ColorBall;
 
-        _Ball = Instantiate(_BallObj);
-        _BallObj.transform.localScale = new Vector3(_R * 2, _R * 2, _R * 2);
-        _Ball.name = "Ball";
-        _Ball.transform.parent = transform;
-        _BallObj.transform.localPosition = Vector2.zero;
+        if (_Racket_1 == null)
+        {
+            _Racket_1 = Instantiate(_RacketObj);
+            _Racket_1.transform.localScale = new Vector3(_Length, 0.05f, 1);
+            _Racket_1.name = "Racket_1";
+            _Racket_1.transform.parent = transform;
+            _Racket_1.transform.localPosition = new Vector2(0, -1 + 0.05f);
+        }
+        else
+        {
+            _Racket_1.transform.localPosition = new Vector2(0, -1 + 0.05f);
+            _Racket_1.SetActive(true);
+        }
 
-        _Racket_1 = Instantiate(_RacketObj);
-        _Racket_1.transform.localScale = new Vector3(_Length, 0.05f, 1);
-        _Racket_1.name = "Racket_1";
-        _Racket_1.transform.parent = transform;
-        _Racket_1.transform.localPosition = new Vector2(0, -1 + 0.05f);
-
-        _Racket_2 = Instantiate(_RacketObj);
-        _Racket_2.transform.localScale = new Vector3(_Length, 0.05f, 1);
-        _Racket_2.name = "Racket_2";
-        _Racket_2.transform.parent = transform;
-        _Racket_2.transform.localPosition = new Vector2(0, 1 - 0.05f);
+        if (_Racket_2 == null)
+        {
+            _Racket_2 = Instantiate(_RacketObj);
+            _Racket_2.transform.localScale = new Vector3(_Length, 0.05f, 1);
+            _Racket_2.name = "Racket_2";
+            _Racket_2.transform.parent = transform;
+            _Racket_2.transform.localPosition = new Vector2(0, 1 - 0.05f);
+        }
+        else
+        {
+            _Racket_2.transform.localPosition = new Vector2(0, 1 - 0.05f);
+            _Racket_2.SetActive(true);
+        }
 
         _StateSission = StateSission.SleepStart;
+
+        _IsPlaySession = true;
+        if (_StartSession != null)
+            _StartSession();
     }
-    void SleepStart()
+    private void SleepStart()
     {
         _StateSission = StateSission.RandomDir;
     }
-    void RandomDir()
+    private void RandomDir()
     {
         _Dir = Random.insideUnitCircle.normalized;
-        _StateSission = StateSission.FindEndPoint;
+        _StateSission = StateSission.ChecksAndFinMovePoint;
     }
-    void FindEndPoint()
+    private void ChecksAndFinMovePoint()
     {
-        //Определяем пересечение с границами
-        Point point = null;
-        for (int q = 0; q < 4; q++)
+        if (Time.time - _OldTime > _TimeAddSpeed)
         {
-            if (q != 3)
-                point = Point.FindPoint(_Point[q], _Point[q + 1], _Ball.transform.position, (Vector2)_Ball.transform.position + (_Dir * _MaxLength));
-            else
-                point = Point.FindPoint(_Point[q], _Point[0], _Ball.transform.position, (Vector2)_Ball.transform.position + (_Dir * _MaxLength));
-
-            if (point != null)
-            {
-                _EndPoint = new Vector2(point.x, point.y);
-                _StateSission = StateSission.ChecksAndFinMovePoint;
-                break;
-            }
+            _OldTime = Time.time;
+            _Speed += _AddSpeed;
         }
-    }
-    void FinMovePoint()
-    {
+
         if (Input.GetKey(KeyCode.D))
         {
             _Racket_1.transform.position += (Vector3)(Vector2.right * (Time.deltaTime * _SpeedRacket));
@@ -198,12 +236,23 @@ public class Session : MonoBehaviour
         _Ball.transform.position += (Vector3)nextVect;
     m1:;
     }
-    void EndSession()
+    private void EndSession()
     {
+        if(_Record < _Experience)
+            PlayerPrefs.SetInt("Record", _Experience);
 
+        _Ball.SetActive(false);
+        _Racket_1.SetActive(false);
+        _Racket_2.SetActive(false);
+
+        _StateSission = StateSission.None;
+        _IsPlaySession = false;
+
+        if(_EndSession != null)
+            _EndSession();
     }
 
-    Point CheckRacket(Vector2 nextPoint)
+    private Point CheckRacket(Vector2 nextPoint)
     {
         Point point = null;
         Vector2 oldDir = _Dir;
@@ -213,8 +262,21 @@ public class Session : MonoBehaviour
                                     nextPoint + (_Dir * _R),
                                     (Vector2)_Racket_1.transform.position + Vector2.right * (_Length / 2),
                                     (Vector2)_Racket_1.transform.position - Vector2.right * (_Length / 2));
+            /*if(point == null)
+                point = Point.FindPoint((Vector2)_Ball.transform.position + Vector2.right * _R,
+                                    (nextPoint + Vector2.right * _R) + (_Dir * _R),
+                                    (Vector2)_Racket_1.transform.position + Vector2.right * (_Length / 2),
+                                    (Vector2)_Racket_1.transform.position - Vector2.right * (_Length / 2));
+            if (point == null)
+                point = Point.FindPoint((Vector2)_Ball.transform.position + Vector2.left * _R,
+                                    (nextPoint + Vector2.left * _R) + (_Dir * _R),
+                                    (Vector2)_Racket_1.transform.position + Vector2.right * (_Length / 2),
+                                    (Vector2)_Racket_1.transform.position - Vector2.right * (_Length / 2));*/
+
             if (point != null)
+            {
                 _Dir = Vector2.Reflect(_Dir, Vector2.up);
+            }
         }
         else if (_Dir.y > 0)
         {
@@ -222,8 +284,20 @@ public class Session : MonoBehaviour
                                     nextPoint + (_Dir * _R),
                                     (Vector2)_Racket_2.transform.position + Vector2.right * (_Length / 2),
                                     (Vector2)_Racket_2.transform.position - Vector2.right * (_Length / 2));
+            /*if (point == null)
+                point = Point.FindPoint((Vector2)_Ball.transform.position + Vector2.right * _R,
+                                    (nextPoint + Vector2.right * _R) + (_Dir * _R),
+                                    (Vector2)_Racket_2.transform.position + Vector2.right * (_Length / 2),
+                                    (Vector2)_Racket_2.transform.position - Vector2.right * (_Length / 2));
+            if (point == null)
+                point = Point.FindPoint((Vector2)_Ball.transform.position + Vector2.left * _R,
+                                    (nextPoint + Vector2.left * _R) + (_Dir * _R),
+                                    (Vector2)_Racket_2.transform.position + Vector2.right * (_Length / 2),
+                                    (Vector2)_Racket_2.transform.position - Vector2.right * (_Length / 2));*/
             if (point != null)
+            {
                 _Dir = Vector2.Reflect(_Dir, Vector2.down);
+            }
         }
 
         if (point != null)
@@ -235,7 +309,7 @@ public class Session : MonoBehaviour
 
         return point;
     }
-    bool CheckGameOver(Vector2 nextPoint)
+    private bool CheckGameOver(Vector2 nextPoint)
     {
         if (nextPoint.y - _R <= _Point[0].y)
             return false;
@@ -244,7 +318,7 @@ public class Session : MonoBehaviour
         else
             return true;
     }
-    Point CheckLineVertical(Vector2 nextPoint)
+    private Point CheckLineVertical(Vector2 nextPoint)
     {
         Point point = null;
 
